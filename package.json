@@ -1,0 +1,33 @@
+{
+  "name": "hls-server",
+  "version": "1.0.0",
+  "description": "HLS Video Server",
+  "main": "dist/video.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/video.js",
+    "dev": "ts-node src/video.ts",
+    "watch": "tsc --watch",
+    "clean": "rm -rf dist",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@koa/multer": "^4.0.0",
+    "@koa/router": "^14.0.0",
+    "koa": "^3.0.1",
+    "koa-bodyparser": "^4.4.1",
+    "uuid": "^13.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.6.0",
+    "@types/koa": "^2.15.0",
+    "@types/koa-bodyparser": "^4.3.0",
+    "@types/koa__router": "^12.0.4",
+    "@types/koa__multer": "^2.0.7",
+    "@types/uuid": "^10.0.0",
+    "typescript": "^5.9.2",
+    "ts-node": "^10.9.2"
+  }
+}
