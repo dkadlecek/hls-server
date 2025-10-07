@@ -56,9 +56,9 @@ enum HLSClientError: Error, LocalizedError {
     }
 }
 
-// MARK: - Completion Block Based HLS Server Client
+// MARK: - HLS Server Client
 
-class CeribellAPIClient: NSObject {
+class HLSAPIClient: NSObject {
     private let baseURL: String
     private let session: URLSession
     

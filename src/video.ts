@@ -32,6 +32,7 @@ interface CreateSessionResponse {
   playlistUrl: string;
   segmentDuration: number;
   createdAt?: string;
+  inProgress?: boolean;
 }
 
 interface ChunkUploadResponse {
@@ -72,12 +73,41 @@ function cleanupSessionMetadata(sessionId: string): void {
   sessionMetadata.delete(sessionId);
 }
 
+// Helper function to check if a session is in progress
+async function isSessionInProgress(sessionId: string): Promise<boolean> {
+  try {
+    const playlistPath = path.join(VIDEO_BASE_DIR, sessionId, 'playlist.m3u8');
+    const playlistContent = await fs.readFile(playlistPath, 'utf8');
+    // A session is finalized if the playlist contains #EXT-X-ENDLIST
+    return !playlistContent.includes('#EXT-X-ENDLIST');
+  } catch (error) {
+    // If playlist doesn't exist or can't be read, consider session as in progress
+    return true;
+  }
+}
+
 // Helper function to get base URL from request context
 function getBaseUrl(ctx: AppContext): string {
+  // Log all relevant headers for debugging
+  console.log('[getBaseUrl] Headers received:');
+  console.log('  X-Forwarded-Proto:', ctx.get('X-Forwarded-Proto') || '(not set)');
+  console.log('  X-Forwarded-Host:', ctx.get('X-Forwarded-Host') || '(not set)');
+  console.log('  X-Forwarded-Port:', ctx.get('X-Forwarded-Port') || '(not set)');
+  console.log('  Host:', ctx.get('Host') || '(not set)');
+  console.log('  ctx.protocol:', ctx.protocol);
+  console.log('  ctx.host:', ctx.host);
+  console.log('  ctx.hostname:', ctx.hostname);
+  console.log('  ctx.origin:', ctx.origin);
+  console.log('  ctx.href:', ctx.href);
+  
   // Use X-Forwarded-Proto and X-Forwarded-Host if behind a proxy, otherwise use ctx values
   const protocol = ctx.get('X-Forwarded-Proto') || ctx.protocol;
   const host = ctx.get('X-Forwarded-Host') || ctx.host;
-  return `${protocol}://${host}`;
+  const baseUrl = `${protocol}://${host}`;
+  
+  console.log('[getBaseUrl] Constructed base URL:', baseUrl);
+  
+  return baseUrl;
 }
 
 // Multer configuration
@@ -254,12 +284,14 @@ router.get('/video/sessions/list', async (ctx: AppContext) => {
     
     for (const sessionId of sortedSessionIds) {
       const metadata = sessionMetadata.get(sessionId);
+      const inProgress = await isSessionInProgress(sessionId);
       body = { ...body, [sessionId]: {
         sessionId,
         uploadUrl: `${baseUrl}/video/sessions/${sessionId}/chunks`,
         playlistUrl: `${baseUrl}/video/sessions/${sessionId}/playlist.m3u8`,
         segmentDuration: metadata?.segmentDuration,
-        createdAt: metadata?.createdAt
+        createdAt: metadata?.createdAt,
+        inProgress
       } as CreateSessionResponse
     }
   }
