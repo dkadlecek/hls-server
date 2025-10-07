@@ -6,7 +6,7 @@
   "scripts": {
     "build": "tsc",
     "start": "node dist/video.js",
-    "dev": "ts-node src/video.ts",
+    "dev": "tsx watch src/video.ts",
     "watch": "tsc --watch",
     "clean": "rm -rf dist",
     "test": "echo \"Error: no test specified\" && exit 1"

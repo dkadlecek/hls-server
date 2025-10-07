@@ -22,6 +22,7 @@ interface AppContext extends Koa.Context {
 }
 
 interface CreateSessionRequest {
+  sessionId?: string;
   segmentDuration?: number;
 }
 
@@ -70,12 +71,73 @@ function cleanupSessionMetadata(sessionId: string): void {
   sessionMetadata.delete(sessionId);
 }
 
+// Helper function to get base URL from request context
+function getBaseUrl(ctx: AppContext): string {
+  // Use X-Forwarded-Proto and X-Forwarded-Host if behind a proxy, otherwise use ctx values
+  const protocol = ctx.get('X-Forwarded-Proto') || ctx.protocol;
+  const host = ctx.get('X-Forwarded-Host') || ctx.host;
+  return `${protocol}://${host}`;
+}
+
 // Multer configuration
 const storage = multer.memoryStorage();
 const upload = multer({
   storage,
   limits: { fileSize: 50 * 1024 * 1024 },
 });
+
+// Load existing sessions from filesystem on startup
+async function loadSessionsFromFilesystem(): Promise<void> {
+  try {
+    await fs.mkdir(VIDEO_BASE_DIR, { recursive: true });
+    const entries = await fs.readdir(VIDEO_BASE_DIR, { withFileTypes: true });
+    
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        const sessionId = entry.name;
+        const sessionDir = path.join(VIDEO_BASE_DIR, sessionId);
+        const playlistPath = path.join(sessionDir, 'playlist.m3u8');
+        
+        let segmentDuration = DEFAULT_SEGMENT_DURATION;
+        let createdAt = new Date().toISOString();
+        
+        // Try to read segment duration from playlist
+        try {
+          const playlistContent = await fs.readFile(playlistPath, 'utf8');
+         
+          const targetDurationMatch = playlistContent.match(/#EXT-X-TARGETDURATION:(\d+)/);
+          if (targetDurationMatch && targetDurationMatch[1]) {
+            segmentDuration = parseInt(targetDurationMatch[1], 10);
+          }
+        } catch (error) {
+          // Playlist doesn't exist or can't be read, use default duration
+          console.log(`[STARTUP] No playlist found for session ${sessionId}, using default segment duration`);
+        }
+        
+        // Try to get directory creation time
+        try {
+          const stats = await fs.stat(sessionDir);
+          createdAt = stats.birthtime.toISOString();
+        } catch (error) {
+          // Use current time if stat fails
+          createdAt = new Date().toISOString();
+        }
+        
+        sessionMetadata.set(sessionId, {
+          sessionId,
+          segmentDuration,
+          createdAt
+        });
+        
+        console.log(`[STARTUP] Loaded session ${sessionId} with segment duration ${segmentDuration}s`);
+      }
+    }
+    
+    console.log(`[STARTUP] Loaded ${sessionMetadata.size} session(s) from filesystem`);
+  } catch (error) {
+    console.error('[STARTUP] Error loading sessions from filesystem:', error);
+  }
+}
 
 // Generate HLS playlist
 async function generateHLSPlaylist(sessionId: string, sequenceId: string = '0', isFinal: boolean = false): Promise<string> {
@@ -136,14 +198,13 @@ async function generateHLSPlaylist(sessionId: string, sequenceId: string = '0', 
 // Routes
 router.post('/video/sessions', async (ctx: AppContext) => {
   try {
-    const sessionId = uuidv4();
-    const sessionDir = path.join(VIDEO_BASE_DIR, sessionId);
-    await fs.mkdir(sessionDir, { recursive: true });
-
-    // Parse segmentDuration from request body, default to DEFAULT_SEGMENT_DURATION
     const requestBody = ctx.request.body as CreateSessionRequest | undefined;
     const segmentDuration = requestBody?.segmentDuration || DEFAULT_SEGMENT_DURATION;
-    
+
+    const sessionId = requestBody?.sessionId || uuidv4();
+    const sessionDir = path.join(VIDEO_BASE_DIR, sessionId);
+    await fs.mkdir(sessionDir, { recursive: true });
+     
     // Validate segmentDuration is a positive number
     const parsedDuration = parseFloat(segmentDuration.toString());
     if (isNaN(parsedDuration) || parsedDuration <= 0) {
@@ -161,16 +222,41 @@ router.post('/video/sessions', async (ctx: AppContext) => {
 
     console.log(`[SESSION] Created session ${sessionId} with segment duration ${parsedDuration}s. Total active sessions: ${sessionMetadata.size}`);
 
+    const baseUrl = getBaseUrl(ctx);
     ctx.body = {
       sessionId,
-      uploadUrl: `/video/sessions/${sessionId}/chunks`,
-      playlistUrl: `/video/sessions/${sessionId}/playlist.m3u8`,
+      uploadUrl: `${baseUrl}/video/sessions/${sessionId}/chunks`,
+      playlistUrl: `${baseUrl}/video/sessions/${sessionId}/playlist.m3u8`,
       segmentDuration: parsedDuration
     } as CreateSessionResponse;
   } catch (error) {
     ctx.status = 500;
     ctx.body = { error: 'Failed to create video session' } as ErrorResponse;
     console.error('Session creation error:', error);
+  }
+});
+
+router.get('/video/sessions', async (ctx: AppContext) => {
+  try {
+    
+    let body = {};
+    const baseUrl = getBaseUrl(ctx);
+    
+    for (const sessionId of sessionMetadata.keys()) {
+      body = { ...body, [sessionId]: {
+        sessionId,
+        uploadUrl: `${baseUrl}/video/sessions/${sessionId}/chunks`,
+        playlistUrl: `${baseUrl}/video/sessions/${sessionId}/playlist.m3u8`,
+        segmentDuration: sessionMetadata.get(sessionId)?.segmentDuration
+      } as CreateSessionResponse
+    }
+  }
+
+    ctx.body = body;
+  } catch (error) {
+    ctx.status = 500;
+    ctx.body = { error: 'Failed to list video session' } as ErrorResponse;
+    console.error('Session get error:', error);
   }
 });
 
@@ -272,10 +358,11 @@ router.post('/video/sessions/:sessionId/finalize', async (ctx: AppContext) => {
     // Clean up session metadata after finalization
     cleanupSessionMetadata(sessionId);
 
+    const baseUrl = getBaseUrl(ctx);
     ctx.body = {
       success: true,
       sessionId,
-      playlistUrl: `/video/sessions/${sessionId}/playlist.m3u8`
+      playlistUrl: `${baseUrl}/video/sessions/${sessionId}/playlist.m3u8`
     } as FinalizeResponse;
   } catch (error) {
     ctx.status = 500;
@@ -332,7 +419,7 @@ router.get('/video/sessions/:sessionId/:filename', async (ctx: AppContext) => {
 
 // CORS options
 router.options('/video/sessions', (ctx: AppContext) => {
-  ctx.set('Access-Control-Allow-Methods', 'POST,OPTIONS');
+  ctx.set('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
   ctx.set('Access-Control-Allow-Headers', 'Content-Type');
   ctx.set('Access-Control-Allow-Origin', '*');
   ctx.status = 204;
@@ -360,6 +447,16 @@ app.use(router.routes());
 app.use(router.allowedMethods());
 
 const PORT = process.env['PORT'] ? parseInt(process.env['PORT'], 10) : 3000;
-app.listen(PORT, () => {
-  console.log(`Video server running at http://localhost:${PORT}/`);
+
+// Initialize server
+async function startServer() {
+  await loadSessionsFromFilesystem();
+  app.listen(PORT, () => {
+    console.log(`Video server running at http://localhost:${PORT}/`);
+  });
+}
+
+startServer().catch(error => {
+  console.error('Failed to start server:', error);
+  process.exit(1);
 });
