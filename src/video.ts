@@ -236,7 +236,7 @@ router.post('/video/sessions', async (ctx: AppContext) => {
   }
 });
 
-router.get('/video/sessions', async (ctx: AppContext) => {
+router.get('/video/sessions/list', async (ctx: AppContext) => {
   try {
     
     let body = {};
@@ -444,7 +444,7 @@ const app = new Koa();
 app.use(bodyParser());
 
 app.use(router.routes());
-app.use(router.allowedMethods());
+// app.use(router.allowedMethods());
 
 const PORT = process.env['PORT'] ? parseInt(process.env['PORT'], 10) : 3000;
 
