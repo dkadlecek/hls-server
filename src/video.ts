@@ -31,6 +31,7 @@ interface CreateSessionResponse {
   uploadUrl: string;
   playlistUrl: string;
   segmentDuration: number;
+  createdAt?: string;
 }
 
 interface ChunkUploadResponse {
@@ -242,12 +243,23 @@ router.get('/video/sessions/list', async (ctx: AppContext) => {
     let body = {};
     const baseUrl = getBaseUrl(ctx);
     
-    for (const sessionId of sessionMetadata.keys()) {
+    // Sort sessions by createdAt date descending (newest first)
+    const sortedSessionIds = Array.from(sessionMetadata.keys()).sort((a, b) => {
+      const metadataA = sessionMetadata.get(a);
+      const metadataB = sessionMetadata.get(b);
+      const dateA = metadataA?.createdAt ? new Date(metadataA.createdAt).getTime() : 0;
+      const dateB = metadataB?.createdAt ? new Date(metadataB.createdAt).getTime() : 0;
+      return dateB - dateA;
+    });
+    
+    for (const sessionId of sortedSessionIds) {
+      const metadata = sessionMetadata.get(sessionId);
       body = { ...body, [sessionId]: {
         sessionId,
         uploadUrl: `${baseUrl}/video/sessions/${sessionId}/chunks`,
         playlistUrl: `${baseUrl}/video/sessions/${sessionId}/playlist.m3u8`,
-        segmentDuration: sessionMetadata.get(sessionId)?.segmentDuration
+        segmentDuration: metadata?.segmentDuration,
+        createdAt: metadata?.createdAt
       } as CreateSessionResponse
     }
   }
