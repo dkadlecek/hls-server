@@ -68,11 +68,6 @@ function getSessionMetadata(sessionId: string): SessionMetadata | undefined {
   return sessionMetadata.get(sessionId);
 }
 
-// Helper function to clean up session metadata
-function cleanupSessionMetadata(sessionId: string): void {
-  sessionMetadata.delete(sessionId);
-}
-
 // Helper function to check if a session is in progress
 async function isSessionInProgress(sessionId: string): Promise<boolean> {
   try {
@@ -88,25 +83,10 @@ async function isSessionInProgress(sessionId: string): Promise<boolean> {
 
 // Helper function to get base URL from request context
 function getBaseUrl(ctx: AppContext): string {
-  // Log all relevant headers for debugging
-  console.log('[getBaseUrl] Headers received:');
-  console.log('  X-Forwarded-Proto:', ctx.get('X-Forwarded-Proto') || '(not set)');
-  console.log('  X-Forwarded-Host:', ctx.get('X-Forwarded-Host') || '(not set)');
-  console.log('  X-Forwarded-Port:', ctx.get('X-Forwarded-Port') || '(not set)');
-  console.log('  Host:', ctx.get('Host') || '(not set)');
-  console.log('  ctx.protocol:', ctx.protocol);
-  console.log('  ctx.host:', ctx.host);
-  console.log('  ctx.hostname:', ctx.hostname);
-  console.log('  ctx.origin:', ctx.origin);
-  console.log('  ctx.href:', ctx.href);
-  
-  // Use X-Forwarded-Proto and X-Forwarded-Host if behind a proxy, otherwise use ctx values
   const protocol = ctx.get('X-Forwarded-Proto') || ctx.protocol;
   const host = ctx.get('X-Forwarded-Host') || ctx.host;
   const baseUrl = `${protocol}://${host}`;
-  
-  console.log('[getBaseUrl] Constructed base URL:', baseUrl);
-  
+   
   return baseUrl;
 }
 
@@ -227,6 +207,11 @@ async function generateHLSPlaylist(sessionId: string, sequenceId: string = '0', 
 }
 
 // Routes
+router.get('/healthz', async (ctx: AppContext) => {
+  ctx.body = { status: 'ok' };
+});
+
+
 router.post('/video/sessions', async (ctx: AppContext) => {
   try {
     const requestBody = ctx.request.body as CreateSessionRequest | undefined;
@@ -398,9 +383,6 @@ router.post('/video/sessions/:sessionId/finalize', async (ctx: AppContext) => {
     await fs.writeFile(playlistPath, playlist);
 
     console.log(`[FINALIZE] Created HLS playlist for session ${sessionId}`);
-
-    // Clean up session metadata after finalization
-    cleanupSessionMetadata(sessionId);
 
     const baseUrl = getBaseUrl(ctx);
     ctx.body = {
