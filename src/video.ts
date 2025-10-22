@@ -443,28 +443,25 @@ router.get('/video/sessions/:sessionId/:filename', async (ctx: AppContext) => {
   }
 });
 
-// CORS options
-router.options('/video/sessions', (ctx: AppContext) => {
-  ctx.set('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
-  ctx.set('Access-Control-Allow-Headers', 'Content-Type');
-  ctx.set('Access-Control-Allow-Origin', '*');
-  ctx.status = 204;
-});
-
-router.options('/video/sessions/:sessionId/chunks/:chunkId', (ctx: AppContext) => {
-  ctx.set('Access-Control-Allow-Methods', 'POST,OPTIONS');
-  ctx.set('Access-Control-Allow-Headers', 'Content-Type');
-  ctx.status = 204;
-});
-
-router.options('/video/sessions/:sessionId/finalize', (ctx: AppContext) => {
-  ctx.set('Access-Control-Allow-Methods', 'POST,OPTIONS');
-  ctx.set('Access-Control-Allow-Headers', 'Content-Type');
-  ctx.status = 204;
-});
-
 // Create and start the server
 const app = new Koa();
+
+// CORS middleware - must be before routes
+app.use(async (ctx, next) => {
+  // Set CORS headers for all requests
+  ctx.set('Access-Control-Allow-Origin', '*');
+  ctx.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  ctx.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  ctx.set('Access-Control-Max-Age', '604800'); // 1 week
+  
+  // Handle OPTIONS preflight requests
+  if (ctx.method === 'OPTIONS') {
+    ctx.status = 204;
+    return;
+  }
+  
+  await next();
+});
 
 // Add body parser middleware
 app.use(bodyParser());
